@@ -1,0 +1,142 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Menu;
+use App\Models\Restaurant;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use App\Http\Controllers\Api\VapiController;
+use App\Models\Assistant;
+use Illuminate\Support\Facades\Log;
+use App\Http\Controllers\Api\OpenAIController;
+
+class MenuController extends Controller
+{
+    public function index()
+    {
+        $menus = Menu::with('restaurant')->latest()->paginate(12);
+        return view('menus.index', compact('menus'));
+    }
+
+    public function create()
+    {
+        $restaurants = Restaurant::orderBy('name')->get();
+        return view('menus.create', compact('restaurants'));
+    }
+
+public function store(Request $request)
+{
+    $data = $request->validate([
+        'restaurant_id' => 'required|exists:restaurants,id',
+        'name' => 'required|string|max:255',
+        'description' => 'nullable|string',
+        'attachments' => 'nullable',
+        'attachments.*' => 'file|mimes:pdf,csv,txt,json,jpeg,png,jpg,gif,webp|max:5120',
+    ]);
+
+    // 1️⃣ Handle uploaded attachments
+    $attachments = [];
+    if ($request->hasFile('attachments')) {
+        foreach ($request->file('attachments') as $file) {
+            if (!$file->isValid()) continue;
+
+            $path = $file->store('menus', 'public');
+            $attachments[] = [
+                'name' => $file->getClientOriginalName(),
+                'mime' => $file->getClientMimeType(),
+                'path' => $path,
+                'url'  => Storage::url($path),
+            ];
+        }
+    }
+
+    if (!empty($attachments)) {
+        $data['attachments'] = $attachments;
+    }
+
+    // 2️⃣ Create menu record
+    $menu = Menu::create($data);
+
+    if (empty($attachments)) {
+        return redirect()->route('menus.index')->with('success', 'Menu created');
+    }
+
+    Log::info('Uploading attachments for restaurant_id: ' . $data['restaurant_id']);
+
+    $assistant = Assistant::where('restaurant_id', $data['restaurant_id'])->first();
+    if (!$assistant) {
+        return redirect()->route('menus.index')->with('success', 'Menu created (no assistant found)');
+    }
+
+    $vapi = new VapiController();
+    $openai = new OpenAIController();
+    $apiKey = config('services.vapi.private_key');
+
+    // 3️⃣ Load or create knowledge base for this restaurant
+    $openaiKb = \App\Models\OpenAIKnowledgeBase::firstOrCreate(
+        ['restaurant_id' => $data['restaurant_id']],
+        ['name' => 'default', 'file_ids' => [], 'embeddings' => [], 'vector_store_id' => null]
+    );
+
+    // 4️⃣ Ensure vector store exists
+    if (empty($openaiKb->vector_store_id)) {
+        // TODO: Replace with actual OpenAI vector store creation API if needed
+        $openaiKb->vector_store_id = 'vs_' . uniqid();
+        $openaiKb->save();
+    }
+    $vectorStoreId = $openaiKb->vector_store_id;
+
+    // 5️⃣ Process attachments
+    foreach ($attachments as $attachment) {
+        $fullPath = Storage::disk('public')->path($attachment['path']);
+        $extension = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+
+        // Convert JSON menu file to readable text for semantic search
+        $filePathToUpload = $fullPath;
+        if ($extension === 'json') {
+            $json = json_decode(file_get_contents($fullPath), true);
+            if ($json) {
+                $pricing = $json['pricing_taxes'][0] ?? null;
+                $price = $pricing['basePrice'] ?? 0;
+                $methods = $pricing['order_methods'] ?? [];
+                $methodsText = !empty($methods) ? implode(', ', $methods) : 'no available methods';
+
+                $name = $json['name'] ?? 'Unknown';
+                $sku = $json['sku'] ?? 'Unknown';
+                $searchableText = "$name costs $price dollars, available for $methodsText. SKU: $sku.";
+                $tempPath = storage_path('app/temp_' . uniqid() . '.txt');
+                file_put_contents($tempPath, $searchableText);
+                $filePathToUpload = $tempPath;
+            }
+        }
+
+        // 5️⃣ Upload to VAPI
+        $vapiFileId = $vapi->uploadToVapi($fullPath, $attachment['name'], $apiKey);
+        if ($vapiFileId) {
+            $vapi->assignFileToAssistant($assistant->vapi_assistant_id, $vapiFileId, $apiKey);
+            Log::info('VAPI upload success', ['fileId' => $vapiFileId]);
+        }
+
+        // 6️⃣ Upload to OpenAI and attach to vector store
+        $openaiFileId = $openai->uploadFile($filePathToUpload);
+        if ($openaiFileId) {
+            $openai->attachFileToVectorStore($vectorStoreId, $openaiFileId);
+            $openaiKb->file_ids = array_values(array_unique(array_merge($openaiKb->file_ids ?? [], [$openaiFileId])));
+            $openaiKb->save();
+
+            Log::info('File attached to OpenAI vector store', [
+                'fileId' => $openaiFileId,
+                'vector_store_id' => $vectorStoreId
+            ]);
+        }
+
+        // Cleanup temp file
+        if (isset($tempPath) && file_exists($tempPath)) {
+            unlink($tempPath);
+        }
+    }
+
+    return redirect()->route('menus.index')->with('success', 'Menu created and synced with AI');
+}
+}
