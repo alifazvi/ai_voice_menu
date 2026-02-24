@@ -8,6 +8,7 @@ use App\Models\Customer;
 use App\Models\Menu;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use App\Http\Controllers\Api\OpenAIController;
 
 class OrderController extends Controller
 {
@@ -46,6 +47,41 @@ class OrderController extends Controller
         }
 
         return (float) $price;
+    }
+
+    /**
+     * Search the OpenAI knowledge base for the price of a food item.
+     */
+    private function resolvePriceFromKnowledgeBase(string $foodName): float
+    {
+        $kb = \App\Models\OpenAIKnowledgeBase::first();
+        if (!$kb || empty($kb->vector_store_id)) {
+            return 0;
+        }
+
+        try {
+            $openai = new OpenAIController();
+            $searchResults = $openai->search($kb->vector_store_id, "price of {$foodName}", 3);
+
+            foreach ($searchResults as $item) {
+                foreach (($item['content'] ?? []) as $content) {
+                    if (($content['type'] ?? null) === 'text' && !empty($content['text'])) {
+                        $text = is_array($content['text']) ? ($content['text']['value'] ?? '') : $content['text'];
+                        $escaped = preg_quote($foodName, '/');
+                        if (preg_match("/{$escaped}.*?costs\s+([\d.]+)\s+pounds/i", $text, $m)) {
+                            return (float) $m[1];
+                        }
+                        if (preg_match("/price of\s+{$escaped}\s+is\s+([\d.]+)\s+pounds/i", $text, $m)) {
+                            return (float) $m[1];
+                        }
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('KB price lookup failed', ['error' => $e->getMessage()]);
+        }
+
+        return 0;
     }
 
     public function store(Request $request)
@@ -89,12 +125,29 @@ class OrderController extends Controller
                     }
                     $qty = $item['qty'] ?? 1;
                     $price = $this->resolveMenuPrice($menu);
+
+                    // Fallback: search knowledge base by item name
+                    if ($price == 0 && !empty($item['name'])) {
+                        $price = $this->resolvePriceFromKnowledgeBase($item['name']);
+                    }
+
                     $total += $price * $qty;
                 }
             } elseif (!empty($data['menu_id'])) {
                 $menu = Menu::find($data['menu_id']);
                 $qty = $data['quantity'] ?? 1;
                 $price = $this->resolveMenuPrice($menu);
+
+                // Fallback: search knowledge base by menu name
+                if ($price == 0 && $menu) {
+                    $price = $this->resolvePriceFromKnowledgeBase($menu->name);
+                }
+
+                $total = $price * $qty;
+            } elseif (!empty($data['food_name'])) {
+                // No menu_id but food_name is provided (e.g. from VAPI)
+                $qty = $data['quantity'] ?? 1;
+                $price = $this->resolvePriceFromKnowledgeBase($data['food_name']);
                 $total = $price * $qty;
             }
 
@@ -104,8 +157,9 @@ class OrderController extends Controller
         Log::info('Order price calculation', [
             'menu_id' => $menu ? $menu->id : null,
             'menu_name' => $menu ? $menu->name : null,
+            'food_name' => $data['food_name'] ?? null,
             'price' => $price,
-            'pricing_taxes' => $menu ? $menu->pricing_taxes : null,
+            'total_amount' => $data['total_amount'],
         ]);
 
         Order::create($data);

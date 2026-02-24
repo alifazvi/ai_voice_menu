@@ -283,15 +283,6 @@ break;
                     // try to find a matching menu by exact name
                     $menu = Menu::where('name', $args['food_name'])->first();
 
-                    // Get price (use basePrice from pricing_taxes if price is 0)
-                    $price = 0;
-                    if ($menu) {
-                        $price = $menu->price;
-                        if ($price == 0 && !empty($menu->pricing_taxes) && isset($menu->pricing_taxes[0]['basePrice'])) {
-                            $price = $menu->pricing_taxes[0]['basePrice'];
-                        }
-                    }
-
                     // Parse quantity
                     $quantityRaw = $args['quantity'];
                     if (preg_match('/\d+/', $quantityRaw, $matches)) {
@@ -300,20 +291,81 @@ break;
                         $quantity = 1;
                     }
 
+                    // Get price — look up from knowledge base vector store
+                    $price = 0;
+
+                    // 1) Try menu model fields first (if menu row exists with price data)
+                    if ($menu) {
+                        $price = $menu->price ?? 0;
+                        if ($price == 0 && !empty($menu->pricing_taxes) && isset($menu->pricing_taxes[0]['basePrice'])) {
+                            $price = $menu->pricing_taxes[0]['basePrice'];
+                        }
+                    }
+
+                    // 2) If still zero, search the knowledge base for the price
+                    if ($price == 0) {
+                        $foodName = $args['food_name'];
+                        $kb = \App\Models\OpenAIKnowledgeBase::first();
+                        if ($kb && !empty($kb->vector_store_id)) {
+                            $openai = new OpenAIController();
+                            $searchResults = $openai->search($kb->vector_store_id, "price of {$foodName}", 3);
+
+                            foreach ($searchResults as $item) {
+                                foreach (($item['content'] ?? []) as $content) {
+                                    if (($content['type'] ?? null) === 'text' && !empty($content['text'])) {
+                                        $text = is_array($content['text']) ? ($content['text']['value'] ?? '') : $content['text'];
+                                        // Match patterns like "Chicken Burger in Burgers costs 3.5 pounds"
+                                        // or "The price of Chicken Burger is 3.5 pounds"
+                                        $escaped = preg_quote($foodName, '/');
+                                        if (preg_match("/{$escaped}.*?costs\s+([\d.]+)\s+pounds/i", $text, $m)) {
+                                            $price = (float) $m[1];
+                                            break 2;
+                                        }
+                                        if (preg_match("/price of\s+{$escaped}\s+is\s+([\d.]+)\s+pounds/i", $text, $m)) {
+                                            $price = (float) $m[1];
+                                            break 2;
+                                        }
+                                    }
+                                }
+                            }
+
+                            Log::info('Price lookup from knowledge base', [
+                                'food_name' => $foodName,
+                                'resolved_price' => $price,
+                            ]);
+                        }
+                    }
+
                     // Calculate total
                     $totalAmount = $price * $quantity;
+
+                    // Determine restaurant_id: use menu's if found, otherwise find from first active menu
+                    $restaurantId = $menu ? $menu->restaurant_id : 1;
+                    if (!$menu) {
+                        $firstMenu = Menu::first();
+                        if ($firstMenu) {
+                            $restaurantId = $firstMenu->restaurant_id;
+                        }
+                    }
 
                     // create order
                     $orderData = [
                         'customer_id' => $customer->id,
                         'menu_id' => $menu ? $menu->id : null,
-                        'restaurant_id' => $menu ? $menu->restaurant_id : 1,
+                        'restaurant_id' => $restaurantId,
                         'food_name' => $args['food_name'],
                         'quantity' => $quantity,
                         'delivery_address' => $args['delivery_address'],
                         'status' => 'placed',
                         'total_amount' => $totalAmount,
                     ];
+
+                    Log::info('Creating order with calculated price', [
+                        'food_name' => $args['food_name'],
+                        'unit_price' => $price,
+                        'quantity' => $quantity,
+                        'total_amount' => $totalAmount,
+                    ]);
 
                     $order = Order::create($orderData);
 
@@ -322,6 +374,7 @@ break;
                         'order_id' => $order->id,
                         'customer_id' => $customer->id,
                         'menu_found' => $menu ? true : false,
+                        'total_amount' => $totalAmount,
                     ];
 
                     break;
