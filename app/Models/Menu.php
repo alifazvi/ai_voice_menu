@@ -17,6 +17,7 @@ class Menu extends Model
         'attachments' => 'array',
         'is_active' => 'boolean',
         'vapi_file_ids' => 'array',
+        'pricing_taxes' => 'array',
     ];
 
     public function restaurant()

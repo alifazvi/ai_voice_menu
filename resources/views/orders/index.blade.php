@@ -16,7 +16,13 @@
            <tr>
              <td>{{ $o->id }}</td>
              <td>{{ optional($o->restaurant)->name }}</td>
-             <td>{{ optional($o->customer)->email }}</td>
+             <td>
+               @if($o->customer)
+                 {{ $o->customer->first_name }} {{ $o->customer->last_name }}
+               @else
+                 N/A
+               @endif
+             </td>
              <td>{{ optional($o->menu)->name }}</td>
              <td>
                @if(!empty($o->items) && is_array($o->items))
@@ -30,7 +36,7 @@
                  <div>{{ $o->food_name }} x{{ $o->quantity }}</div>
                @endif
              </td>
-             <td>{{ $o->total_amount }}</td>
+             <td>£{{ number_format($o->total_amount, 2) }}</td>
              <td>{{ $o->table_number }}</td>
              <td>{{ $o->guest_count }}</td>
              <td>{{ $o->status }}</td>

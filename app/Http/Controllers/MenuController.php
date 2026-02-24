@@ -106,9 +106,30 @@ class MenuController extends Controller
                         $catName = $category['name'] ?? '';
                         foreach ($category['products'] ?? [] as $product) {
                             $prodName = $product['name'] ?? '';
-                            $price = $product['price'] ?? 0;
+                            $rawPrice = $product['price'] ?? 0;
+
+                            // Extract basePrice from pricing_taxes if price is zero
+                            $basePrice = null;
+                            if (
+                                ($rawPrice === 0 || $rawPrice === '0' || $rawPrice === null || $rawPrice === '') &&
+                                !empty($product['pricing_taxes']) &&
+                                isset($product['pricing_taxes'][0]['basePrice'])
+                            ) {
+                                $basePrice = $product['pricing_taxes'][0]['basePrice'];
+                            }
+
+                            $price = ($rawPrice === 0 || $rawPrice === '0' || $rawPrice === null || $rawPrice === '') && $basePrice !== null
+                                ? $basePrice
+                                : $rawPrice;
+
                             $sku = $product['sku'] ?? '';
-                            $lines[] = "$prodName in $catName costs $price pounds. SKU: $sku.";
+                            $desc = $product['description'] ?? '';
+
+                            // Add a general info line (no price)
+                            $lines[] = "$prodName is a menu item in $catName. $desc SKU: $sku.";
+
+                            // Add a price line (for price-specific queries)
+                            $lines[] = "The price of $prodName is $price pounds.";
                         }
                     }
                     $searchableText = implode("\n", $lines);

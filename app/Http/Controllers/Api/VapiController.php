@@ -283,14 +283,26 @@ break;
                     // try to find a matching menu by exact name
                     $menu = Menu::where('name', $args['food_name'])->first();
 
+                    // Get price (use basePrice from pricing_taxes if price is 0)
+                    $price = 0;
+                    if ($menu) {
+                        $price = $menu->price;
+                        if ($price == 0 && !empty($menu->pricing_taxes) && isset($menu->pricing_taxes[0]['basePrice'])) {
+                            $price = $menu->pricing_taxes[0]['basePrice'];
+                        }
+                    }
+
+                    // Parse quantity
                     $quantityRaw = $args['quantity'];
-                    // Extract the first integer from the string, fallback to 1 if not found
                     if (preg_match('/\d+/', $quantityRaw, $matches)) {
                         $quantity = (int)$matches[0];
                     } else {
                         $quantity = 1;
                     }
-                   
+
+                    // Calculate total
+                    $totalAmount = $price * $quantity;
+
                     // create order
                     $orderData = [
                         'customer_id' => $customer->id,
@@ -300,7 +312,7 @@ break;
                         'quantity' => $quantity,
                         'delivery_address' => $args['delivery_address'],
                         'status' => 'placed',
-                        'total_amount' => 0,
+                        'total_amount' => $totalAmount,
                     ];
 
                     $order = Order::create($orderData);
