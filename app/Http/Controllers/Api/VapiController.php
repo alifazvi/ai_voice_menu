@@ -122,6 +122,8 @@ class VapiController extends Controller
                             // Use OpenAIController search function
                             $searchResults = $openai->search($kb->vector_store_id, $query, 3);
 
+                            Log::info('Raw vector store search results', ['searchResults' => $searchResults]);
+
                             $rag = array_values(array_filter(array_map(function ($item) {
                                 $textParts = [];
                                 foreach (($item['content'] ?? []) as $content) {
@@ -149,8 +151,17 @@ class VapiController extends Controller
 
                         Log::info('VapiController: get_info rag results', ['results_count' => count($rag), 'toolCallId' => $toolCallId]);
 
-                        $result = empty($rag) ? 'no data found' : ['customer_query' => $query, 'matches' => $rag];
-                        break;
+                        if (empty($rag)) {
+    $result = "I'm sorry, I couldn't find any information about that menu item.";
+} else {
+    // Flatten matches into a readable string
+    $menuText = '';
+    foreach ($rag as $match) {
+        $menuText .= ($match['text'] ?? '') . "\n";
+    }
+    $result = trim($menuText);
+}
+break;
                     }
 
                     $result = ['error' => 'Missing required argument: customer_query'];
@@ -272,13 +283,21 @@ class VapiController extends Controller
                     // try to find a matching menu by exact name
                     $menu = Menu::where('name', $args['food_name'])->first();
 
+                    $quantityRaw = $args['quantity'];
+                    // Extract the first integer from the string, fallback to 1 if not found
+                    if (preg_match('/\d+/', $quantityRaw, $matches)) {
+                        $quantity = (int)$matches[0];
+                    } else {
+                        $quantity = 1;
+                    }
+                   
                     // create order
                     $orderData = [
                         'customer_id' => $customer->id,
                         'menu_id' => $menu ? $menu->id : null,
                         'restaurant_id' => $menu ? $menu->restaurant_id : 1,
                         'food_name' => $args['food_name'],
-                        'quantity' => $args['quantity'],
+                        'quantity' => $quantity,
                         'delivery_address' => $args['delivery_address'],
                         'status' => 'placed',
                         'total_amount' => 0,

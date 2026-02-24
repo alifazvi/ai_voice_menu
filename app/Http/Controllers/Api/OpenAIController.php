@@ -106,4 +106,39 @@ class OpenAIController
 
         return $this->attachFileToVectorStore($vectorStoreId, $fileId);
     }
+
+    /**
+     * Create a new Vector Store
+     */
+    public function createVectorStore(string $name = 'default'): ?string
+    {
+        Log::info('Creating OpenAI vector store', [
+            'apiKey' => substr($this->apiKey, 0, 8) . '...',
+            'name' => $name,
+        ]);
+
+        $response = \Http::withHeaders([
+            'Authorization' => 'Bearer ' . $this->apiKey,
+            'Content-Type' => 'application/json',
+        ])->post('https://api.openai.com/v1/vector_stores', [
+            'name' => $name,
+        ]);
+
+        Log::info('OpenAI vector store creation response', [
+            'status' => $response->status(),
+            'body' => $response->body()
+        ]);
+
+        if ($response->successful()) {
+            $id = $response->json()['id'] ?? null;
+            Log::info('OpenAI vector store created', ['id' => $id]);
+            return $id;
+        }
+
+        Log::error('Failed to create OpenAI vector store', [
+            'status' => $response->status(),
+            'body' => $response->body()
+        ]);
+        return null;
+    }
 }

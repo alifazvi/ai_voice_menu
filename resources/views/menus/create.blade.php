@@ -26,8 +26,8 @@
       </div>
       <!-- Menu items and price details are not stored on this table; attach files instead -->
       <div class="mb-3">
-        <label class="form-label">Attachments (files) — allowed: pdf,csv,txt,jpeg,png,gif. You can upload multiple files.</label>
-        <input type="file" name="attachments[]" class="form-control" multiple accept=".pdf,.csv,.txt,image/*">
+        <label class="form-label">Attachments (files) — allowed: pdf,csv,json,txt,jpeg,png,gif. You can upload multiple files.</label>
+        <input type="file" name="attachments[]" class="form-control" multiple accept=".pdf,.csv,.json,.txt,image/*">
         <div class="form-text">Uploaded files will be stored and listed with URL.</div>
       </div>
       <button class="btn btn-primary">Create</button>
