@@ -21,6 +21,7 @@
         <li class="nav-item"><a class="nav-link" href="/menus">Menus</a></li>
         <li class="nav-item"><a class="nav-link" href="/customers">Customers</a></li>
         <li class="nav-item"><a class="nav-link" href="/orders">Orders</a></li>
+        <li class="nav-item"><a class="nav-link" href="/dineins">Dine-In</a></li>
       </ul>
     </div>
   </div>

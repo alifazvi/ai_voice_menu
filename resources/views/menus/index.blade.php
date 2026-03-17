@@ -10,7 +10,7 @@
    <div class="card-body">
      @if($menus->count())
        <table class="table table-striped">
-         <thead><tr><th>ID</th><th>Name</th><th>Restaurant</th><th>Price Range</th><th>Created</th></tr></thead>
+         <thead><tr><th>ID</th><th>Name</th><th>Restaurant</th><th>Price Range</th><th>Created</th><th>Attachments</th><th>Actions</th></tr></thead>
          <tbody>
          @foreach($menus as $m)
            <tr>
@@ -25,6 +25,13 @@
                   <div><a href="{{ $a['url'] ?? '#' }}" target="_blank">{{ $a['name'] ?? 'file' }}</a></div>
                 @endforeach
               @endif
+            </td>
+            <td>
+              <form action="{{ route('menus.destroy', $m) }}" method="POST" onsubmit="return confirm('Delete this menu?')">
+                @csrf
+                @method('DELETE')
+                <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+              </form>
             </td>
            </tr>
          @endforeach

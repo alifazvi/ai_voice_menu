@@ -7,11 +7,14 @@ use App\Models\Menu;
 use App\Models\Order;
 use App\Models\Customer;
 use App\Models\Assistant;
+use App\Models\DineIn;
+use App\Models\Restaurant;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Carbon\Carbon;
 use GuzzleHttp\Exception\RequestException;
 use App\Http\Controllers\Api\OpenAIController;
 
@@ -314,15 +317,34 @@ break;
                                 foreach (($item['content'] ?? []) as $content) {
                                     if (($content['type'] ?? null) === 'text' && !empty($content['text'])) {
                                         $text = is_array($content['text']) ? ($content['text']['value'] ?? '') : $content['text'];
-                                        // Match patterns like "Chicken Burger in Burgers costs 3.5 pounds"
-                                        // or "The price of Chicken Burger is 3.5 pounds"
+                                        
+                                        // 1) Try to extract from JSON structure (e.g., "price": "2.00")
+                                        if (preg_match('/"price"\s*:\s*"?([\d.]+)"?/i', $text, $m)) {
+                                            $price = (float) $m[1];
+                                            Log::info('Price extracted from JSON', ['price' => $price, 'pattern' => 'JSON field']);
+                                            break 2;
+                                        }
+                                        
+                                        // 2) Match formatted text patterns
+                                        // Pattern: "Chicken Burger in Burgers costs 3.5 pounds" or "Diet Coke Can costs 2.00 pounds"
                                         $escaped = preg_quote($foodName, '/');
                                         if (preg_match("/{$escaped}.*?costs\s+([\d.]+)\s+pounds/i", $text, $m)) {
                                             $price = (float) $m[1];
+                                            Log::info('Price extracted from text pattern', ['price' => $price, 'pattern' => 'costs pattern']);
                                             break 2;
                                         }
+                                        
+                                        // 3) Pattern: "The price of Chicken Burger is 3.5 pounds"
                                         if (preg_match("/price of\s+{$escaped}\s+is\s+([\d.]+)\s+pounds/i", $text, $m)) {
                                             $price = (float) $m[1];
+                                            Log::info('Price extracted from text pattern', ['price' => $price, 'pattern' => 'price of pattern']);
+                                            break 2;
+                                        }
+                                        
+                                        // 4) Generic pattern: look for any price amount following the item name (e.g., "Diet Coke Can 2.00" or "Diet Coke Can - £2.00")
+                                        if (preg_match("/{$escaped}[\\s\\-:£]*?([\d.]+)/i", $text, $m)) {
+                                            $price = (float) $m[1];
+                                            Log::info('Price extracted from generic pattern', ['price' => $price, 'pattern' => 'generic amount']);
                                             break 2;
                                         }
                                     }
@@ -378,9 +400,143 @@ break;
                     ];
 
                     break;
+                case 'book_table':
+                    Log::info('Dispatching book_table with args', ['args' => $args]);
+
+                    $name = trim((string) ($args['name'] ?? $args['customer_name'] ?? ''));
+                    $phone = trim((string) ($args['phone_number'] ?? $args['phone'] ?? ''));
+                    $reservationRaw = $args['booking_slot'] ?? ($args['time'] ?? ($args['booked_at'] ?? null));
+                    $guestRaw = $args['guest_count'] ?? ($args['number_of_guests'] ?? ($args['seats'] ?? ($args['party_size'] ?? null)));
+                    $tableNumber = $args['table_number'] ?? ($args['table'] ?? null);
+                    $notes = $args['notes'] ?? ($args['special_requests'] ?? null);
+                    $location = $args['location'] ?? 'Main Hall';
+
+                    $missing = [];
+                    if ($name === '') {
+                        $missing[] = 'name';
+                    }
+                    if (empty($reservationRaw)) {
+                        $missing[] = 'booking_slot';
+                    }
+                    if (empty($guestRaw)) {
+                        $missing[] = 'guest_count';
+                    }
+
+                    if (!empty($missing)) {
+                        $result = ['error' => 'Missing required arguments', 'missing' => $missing];
+                        break;
+                    }
+
+                    try {
+                        $bookedAt = Carbon::parse($reservationRaw);
+                    } catch (\Throwable $e) {
+                        $result = ['error' => 'Invalid booking_slot format', 'value' => $reservationRaw];
+                        break;
+                    }
+
+                    $guestCount = 1;
+                    if (preg_match('/\d+/', (string) $guestRaw, $m)) {
+                        $guestCount = max(1, (int) $m[0]);
+                    }
+
+                    // Reuse existing customer by phone when possible, otherwise create a new one.
+                    $customer = null;
+                    if ($phone !== '') {
+                        $customer = Customer::where('phone', $phone)->latest()->first();
+                    }
+
+                    if (!$customer) {
+                        $parts = preg_split('/\s+/', $name, 2, PREG_SPLIT_NO_EMPTY);
+                        $customer = Customer::create([
+                            'first_name' => $parts[0] ?? $name,
+                            'last_name' => $parts[1] ?? '',
+                            'phone' => $phone !== '' ? $phone : null,
+                        ]);
+                    }
+
+                    $restaurantId = $args['restaurant_id'] ?? null;
+                    if (empty($restaurantId)) {
+                        $restaurantId = Restaurant::query()->value('id');
+                    }
+
+                    if (empty($restaurantId)) {
+                        $result = ['error' => 'No restaurant found to attach booking'];
+                        break;
+                    }
+
+                    $booking = Order::create([
+                        'restaurant_id' => $restaurantId ?? 2,
+                        'customer_id' => $customer->id,
+                        'status' => 'booked',
+                        'guest_count' => $guestCount,
+                        'table_number' => $tableNumber,
+                        'booked_at' => $bookedAt,
+                        'notes' => $notes,
+                        'total_amount' => 0,
+                        'quantity' => 1,
+                    ]);
+
+                    $dineIn = DineIn::create([
+                        'customer_id' => $customer->id,
+                        'table_number' => (string) ($tableNumber ?? 'TBD'),
+                        'seats' => $guestCount,
+                        'location' => (string) $location,
+                        'is_available' => 0,
+                        'booking_date' => $bookedAt->toDateString(),
+                        'booking_slot' => (string) ($args['booking_slot'] ?? $bookedAt->format('H:i')),
+                        'special_request' => $notes,
+                    ]);
+
+                    
+
+                    $result = [
+                        'message' => 'Table booked',
+                        'booking_id' => $booking->id,
+                        'dine_in_id' => $dineIn->id,
+                        'customer_id' => $customer->id,
+                        'guest_count' => $booking->guest_count,
+                        'booked_at' => optional($booking->booked_at)->toDateTimeString(),
+                        'table_number' => $booking->table_number,
+                    ];
+
+                    break;
                 case 'trackOrder':
                     // allow passing order_id as argument or in path
                     $orderId = $args['order_id'] ?? ($args['id'] ?? null);
+
+                    if (empty($orderId)) {
+                        $result = ['error' => 'Missing required argument: order_id'];
+                        break;
+                    }
+
+                    $order = Order::with(['restaurant', 'customer', 'menu'])->find($orderId);
+
+                    if (!$order) {
+                        $result = ['error' => 'Order not found', 'order_id' => $orderId];
+                        break;
+                    }
+
+                    $result = [
+                        'order_id' => $order->id,
+                        'status' => $order->status,
+                        'total_amount' => (float) $order->total_amount,
+                        'food_name' => $order->food_name,
+                        'quantity' => (float) $order->quantity,
+                        'delivery_address' => $order->delivery_address,
+                        'table_number' => $order->table_number,
+                        'guest_count' => $order->guest_count,
+                        'placed_at' => optional($order->placed_at)->toDateTimeString(),
+                        'booked_at' => optional($order->booked_at)->toDateTimeString(),
+                        'customer' => $order->customer ? [
+                            'id' => $order->customer->id,
+                            'name' => trim(($order->customer->first_name ?? '') . ' ' . ($order->customer->last_name ?? '')),
+                            'phone' => $order->customer->phone,
+                        ] : null,
+                        'restaurant' => $order->restaurant ? [
+                            'id' => $order->restaurant->id,
+                            'name' => $order->restaurant->name,
+                        ] : null,
+                    ];
                     break;
                 default:
                     return response()->json([

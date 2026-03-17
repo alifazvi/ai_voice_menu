@@ -167,4 +167,11 @@ class MenuController extends Controller
 
         return redirect()->route('menus.index')->with('success', 'Menu created and synced with AI');
     }
+
+    public function destroy(Menu $menu)
+    {
+        $menu->delete();
+
+        return redirect()->route('menus.index')->with('success', 'Menu deleted');
+    }
 }

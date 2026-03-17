@@ -10,7 +10,7 @@
    <div class="card-body">
      @if($customers->count())
        <table class="table table-striped">
-         <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Phone</th><th>Created</th></tr></thead>
+         <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Phone</th><th>Created</th><th>Actions</th></tr></thead>
          <tbody>
          @foreach($customers as $c)
            <tr>
@@ -19,6 +19,13 @@
              <td>{{ $c->email }}</td>
              <td>{{ $c->phone }}</td>
              <td>{{ $c->created_at->toDateString() }}</td>
+             <td>
+               <form action="{{ route('customers.destroy', $c) }}" method="POST" onsubmit="return confirm('Delete this customer?')">
+                 @csrf
+                 @method('DELETE')
+                 <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+               </form>
+             </td>
            </tr>
          @endforeach
          </tbody>

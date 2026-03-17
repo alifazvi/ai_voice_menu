@@ -67,11 +67,26 @@ class OrderController extends Controller
                 foreach (($item['content'] ?? []) as $content) {
                     if (($content['type'] ?? null) === 'text' && !empty($content['text'])) {
                         $text = is_array($content['text']) ? ($content['text']['value'] ?? '') : $content['text'];
+                        
+                        // 1) Try to extract from JSON structure (e.g., "price": "2.00")
+                        if (preg_match('/"price"\s*:\s*"?([\d.]+)"?/i', $text, $m)) {
+                            return (float) $m[1];
+                        }
+                        
+                        // 2) Match formatted text patterns
+                        // Pattern: "Chicken Burger in Burgers costs 3.5 pounds"
                         $escaped = preg_quote($foodName, '/');
                         if (preg_match("/{$escaped}.*?costs\s+([\d.]+)\s+pounds/i", $text, $m)) {
                             return (float) $m[1];
                         }
+                        
+                        // 3) Pattern: "The price of Chicken Burger is 3.5 pounds"
                         if (preg_match("/price of\s+{$escaped}\s+is\s+([\d.]+)\s+pounds/i", $text, $m)) {
+                            return (float) $m[1];
+                        }
+                        
+                        // 4) Generic pattern: look for any price amount following the item name
+                        if (preg_match("/{$escaped}[\\s\\-:£]*?([\d.]+)/i", $text, $m)) {
                             return (float) $m[1];
                         }
                     }
@@ -165,5 +180,25 @@ class OrderController extends Controller
         Order::create($data);
 
         return redirect()->route('orders.index')->with('success', 'Order created');
+    }
+
+    public function destroy(Order $order)
+    {
+        $order->delete();
+
+        return redirect()->route('orders.index')->with('success', 'Order deleted');
+    }
+
+    public function updateStatus(Request $request, Order $order)
+    {
+        $data = $request->validate([
+            'status' => 'required|string|max:50',
+        ]);
+
+        $order->update([
+            'status' => $data['status'],
+        ]);
+
+        return redirect()->route('orders.index')->with('success', 'Order status updated');
     }
 }

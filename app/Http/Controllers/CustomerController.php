@@ -31,4 +31,11 @@ class CustomerController extends Controller
 
         return redirect()->route('customers.index')->with('success', 'Customer created');
     }
+
+    public function destroy(Customer $customer)
+    {
+        $customer->delete();
+
+        return redirect()->route('customers.index')->with('success', 'Customer deleted');
+    }
 }

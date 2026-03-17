@@ -10,7 +10,7 @@
    <div class="card-body">
      @if($orders->count())
        <table class="table table-striped">
-         <thead><tr><th>ID</th><th>Restaurant</th><th>Customer</th><th>Menu</th><th>Items</th><th>Total</th><th>Table</th><th>Guests</th><th>Status</th></tr></thead>
+         <thead><tr><th>ID</th><th>Restaurant</th><th>Customer</th><th>Menu</th><th>Items</th><th>Total</th><th>Table</th><th>Guests</th><th>Status</th><th>Actions</th></tr></thead>
          <tbody>
          @foreach($orders as $o)
            <tr>
@@ -39,7 +39,31 @@
              <td>£{{ number_format($o->total_amount, 2) }}</td>
              <td>{{ $o->table_number }}</td>
              <td>{{ $o->guest_count }}</td>
-             <td>{{ $o->status }}</td>
+             <td>
+               <form action="{{ route('orders.update-status', $o) }}" method="POST" class="d-flex gap-2 align-items-center">
+                 @csrf
+                 @method('PATCH')
+                 <select name="status" class="form-select form-select-sm" style="min-width: 130px;">
+                   <option value="pending" @selected($o->status === 'pending')>Pending</option>
+                   <option value="placed" @selected($o->status === 'placed')>Placed</option>
+                   <option value="confirmed" @selected($o->status === 'confirmed')>Confirmed</option>
+                   <option value="preparing" @selected($o->status === 'preparing')>Preparing</option>
+                   <option value="out_for_delivery" @selected($o->status === 'out_for_delivery')>Out for delivery</option>
+                   <option value="delivered" @selected($o->status === 'delivered')>Delivered</option>
+                   <option value="completed" @selected($o->status === 'completed')>Completed</option>
+                   <option value="cancelled" @selected($o->status === 'cancelled')>Cancelled</option>
+                   <option value="booked" @selected($o->status === 'booked')>Booked</option>
+                 </select>
+                 <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
+               </form>
+             </td>
+             <td>
+               <form action="{{ route('orders.destroy', $o) }}" method="POST" onsubmit="return confirm('Delete this order?')">
+                 @csrf
+                 @method('DELETE')
+                 <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+               </form>
+             </td>
            </tr>
          @endforeach
          </tbody>

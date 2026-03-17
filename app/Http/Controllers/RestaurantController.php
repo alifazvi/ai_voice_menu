@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Restaurant;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class RestaurantController extends Controller
 {
@@ -27,11 +28,18 @@ class RestaurantController extends Controller
         ]);
 
         if (empty($data['slug'])) {
-            $data['slug'] = \Str::slug($data['name']);
+            $data['slug'] = Str::slug($data['name']);
         }
 
         Restaurant::create($data);
 
         return redirect()->route('restaurants.index')->with('success', 'Restaurant created');
+    }
+
+    public function destroy(Restaurant $restaurant)
+    {
+        $restaurant->delete();
+
+        return redirect()->route('restaurants.index')->with('success', 'Restaurant deleted');
     }
 }
