@@ -361,14 +361,8 @@ break;
                     // Calculate total
                     $totalAmount = $price * $quantity;
 
-                    // Determine restaurant_id: use menu's if found, otherwise find from first active menu
-                    $restaurantId = $menu ? $menu->restaurant_id : 1;
-                    if (!$menu) {
-                        $firstMenu = Menu::first();
-                        if ($firstMenu) {
-                            $restaurantId = $firstMenu->restaurant_id;
-                        }
-                    }
+                    // Determine restaurant_id: use menu's if found, otherwise use static restaurant id 2
+                    $restaurantId = 2;
 
                     // create order
                     $orderData = [
@@ -454,18 +448,15 @@ break;
                         ]);
                     }
 
-                    $restaurantId = $args['restaurant_id'] ?? null;
-                    if (empty($restaurantId)) {
-                        $restaurantId = Restaurant::query()->value('id');
-                    }
+                    $restaurantId = (int) ($args['restaurant_id'] ?? 2);
 
-                    if (empty($restaurantId)) {
-                        $result = ['error' => 'No restaurant found to attach booking'];
+                    if (!Restaurant::whereKey($restaurantId)->exists()) {
+                        $result = ['error' => 'Restaurant not found for booking', 'restaurant_id' => $restaurantId];
                         break;
                     }
 
                     $booking = Order::create([
-                        'restaurant_id' => $restaurantId ?? 2,
+                        'restaurant_id' => $restaurantId,
                         'customer_id' => $customer->id,
                         'status' => 'booked',
                         'guest_count' => $guestCount,
@@ -503,7 +494,7 @@ break;
                 case 'trackOrder':
                     // allow passing order_id as argument or in path
                     $orderId = $args['order_id'] ?? ($args['id'] ?? null);
-
+ 
                     if (empty($orderId)) {
                         $result = ['error' => 'Missing required argument: order_id'];
                         break;

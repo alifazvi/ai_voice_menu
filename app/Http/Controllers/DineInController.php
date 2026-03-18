@@ -14,7 +14,7 @@ class DineInController extends Controller
     {
         $dineins = DineIn::with('customer')
             ->latest()
-            ->paginate(15);
+            ->paginate(10);
         return view('dineins.index', compact('dineins'));
     }
 

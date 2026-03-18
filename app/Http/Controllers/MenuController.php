@@ -15,7 +15,7 @@ class MenuController extends Controller
 {
     public function index()
     {
-        $menus = Menu::with('restaurant')->latest()->paginate(12);
+        $menus = Menu::with('restaurant')->latest()->paginate(10);
         return view('menus.index', compact('menus'));
     }
 

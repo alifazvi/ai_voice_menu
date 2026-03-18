@@ -1,19 +1,29 @@
 <?php
 
-namespace Tests\Feature;
+use App\Models\User;
 
-// use Illuminate\Foundation\Testing\RefreshDatabase;
-use Tests\TestCase;
+it('redirects guests to the login page from root', function () {
+    $response = $this->get('/');
 
-class ExampleTest extends TestCase
-{
-    /**
-     * A basic test example.
-     */
-    public function test_the_application_returns_a_successful_response(): void
-    {
-        $response = $this->get('/');
+    $response->assertRedirect(route('login', absolute: false));
+});
 
-        $response->assertStatus(200);
-    }
-}
+it('redirects authenticated users to the dashboard from root', function () {
+    $user = User::factory()->create();
+
+    $response = $this->actingAs($user)->get('/');
+
+    $response->assertRedirect(route('dashboard', absolute: false));
+});
+
+it('redirects guests to the login page from dashboard', function () {
+    $response = $this->get('/dashboard');
+
+    $response->assertRedirect(route('login', absolute: false));
+});
+
+it('redirects guests to the login page from profile', function () {
+    $response = $this->get('/profile');
+
+    $response->assertRedirect(route('login', absolute: false));
+});

@@ -10,7 +10,7 @@ class RestaurantController extends Controller
 {
     public function index()
     {
-        $restaurants = Restaurant::latest()->paginate(12);
+        $restaurants = Restaurant::latest()->paginate(10);
         return view('restaurants.index', compact('restaurants'));
     }
 
